@@ -1,0 +1,19 @@
+implementationplan.md
+note.txt
+
+# Local secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# Downloaded RBI source files and derived data (not committed)
+data/raw/
+data/processed/

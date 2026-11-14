@@ -1,0 +1,37 @@
+# Local PostgreSQL + pgvector for NiyamLens.
+#
+# Prepared in Milestone 1 but NOT yet run or validated (Docker is not installed
+# on the development machine). Usage once Docker is available:
+#   cp .env.example .env   # then set NIYAMLENS_DB_PASSWORD and DATABASE_URL
+#   docker compose up -d db
+#
+# - Binds only to 127.0.0.1 on host port 5433 to stay isolated from any other
+#   local PostgreSQL server on 5432.
+# - The password is read from `.env` / the environment; it is never written here.
+# - Scripts in docker/postgres/init run only when the data volume is first
+#   created; they enable the `vector` extension in the `niyamlens` database.
+
+name: niyamlens
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: niyamlens
+      POSTGRES_USER: ${NIYAMLENS_DB_USER:-niyamlens}
+      POSTGRES_PASSWORD: ${NIYAMLENS_DB_PASSWORD:?Set NIYAMLENS_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - niyamlens_pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  niyamlens_pgdata:
