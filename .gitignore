@@ -1,8 +1,14 @@
 implementationplan.md
 note.txt
 
-# Local secrets
+# Local secrets and credential files
 .env
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+credentials*.json
 
 # Python
 .venv/
@@ -17,3 +23,4 @@ frontend/dist/
 # Downloaded RBI source files and derived data (not committed)
 data/raw/
 data/processed/
+rbi_pdf/

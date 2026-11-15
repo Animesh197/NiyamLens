@@ -1,0 +1,138 @@
+# NiyamLens seed source manifest (implementationplan.md §2.1–§2.3).
+#
+# These are EXPECTED values only. They are never treated as proof: every run
+# re-opens the official RBI page, records what it actually observes, and blocks
+# a source if its identity does not match. Do not substitute a similarly named
+# PDF when a check fails; report the mismatch instead.
+#
+# Provenance: URLs and dates from the plan's research (13 Nov 2026). Official
+# titles and document identifiers copied from the RBI pages as observed on
+# 14 Nov 2026. Titles are stored exactly as displayed (RBI mixes "-" and "–").
+
+manifest_version: 1
+researched_on: 2026-11-13
+
+rbi_hosts: &rbi_hosts
+  - www.rbi.org.in
+  - rbi.org.in
+  - rbidocs.rbi.org.in
+
+families:
+  - family_key: nbfc_concentration_risk_2025
+    official_title: "Reserve Bank of India (Non-Banking Financial Companies - Concentration Risk Management) Directions, 2025"
+    regulator: Reserve Bank of India
+    jurisdiction: India
+    rbi_direction_id: 12953
+    previous_versions_url: "https://www.rbi.org.in/Scripts/NotificationPreVersion.aspx?id=12953"
+    comparison_eligible: true
+    comparison_note: >-
+      Plan pairs the 28 Nov 2025 history entry with the current version. RBI lists
+      several intermediate history entries; they are not part of the seeded corpus.
+
+  - family_key: nbfc_governance_2025
+    official_title: "Reserve Bank of India (Non-Banking Financial Companies – Governance) Directions, 2025"
+    regulator: Reserve Bank of India
+    jurisdiction: India
+    rbi_direction_id: 12960
+    previous_versions_url: "https://www.rbi.org.in/Scripts/NotificationPreVersion.aspx?id=12960"
+    comparison_eligible: true
+    comparison_note: Plan pairs the 28 Nov 2025 history entry with the current version.
+
+  - family_key: nbfc_compliance_function_2026
+    official_title: "Reserve Bank of India (Non-Banking Financial Companies - Compliance Function) Directions, 2026"
+    regulator: Reserve Bank of India
+    jurisdiction: India
+    rbi_direction_id: 13593
+    previous_versions_url: "https://www.rbi.org.in/Scripts/NotificationPreVersion.aspx?id=13593"
+    comparison_eligible: false
+    comparison_note: >-
+      historical_version_unavailable: no verified previous Master Direction version.
+      Never create a historical diff for this family.
+
+sources:
+  - source_key: crm_2025_historical_20251128
+    document_family_key: nbfc_concentration_risk_2025
+    version_role: historical
+    expected_title: "Reserve Bank of India (Non-Banking Financial Companies - Concentration Risk Management) Directions, 2025"
+    source_page_url: "https://www.rbi.org.in/Scripts/NotificationPreVersion.aspx?id=12953&Histid=67"
+    expected_issue_date: 2025-11-28
+    expected_updated_as_on: null
+    expected_history_entry_date: 2025-11-28
+    expected_document_identifiers:
+      - "RBI/DOR/2025-26/351"
+      - "DOR.CRE.REC.270/07-03-008/2025-26"
+    expected_pdf_url: "https://rbidocs.rbi.org.in/rdocs/notification/PDFs/NOTIFICATION_12953_28_11_2025.PDF"
+    allowed_hosts: *rbi_hosts
+    comparison_eligible: true
+    notes: Historical side of the Concentration Risk comparison pair.
+
+  - source_key: crm_2025_current
+    document_family_key: nbfc_concentration_risk_2025
+    version_role: current
+    expected_title: "Reserve Bank of India (Non-Banking Financial Companies - Concentration Risk Management) Directions, 2025 (Updated as on August 25, 2026)"
+    source_page_url: "https://www.rbi.org.in/Scripts/BS_ViewMasDirections.aspx?id=12953"
+    expected_issue_date: 2025-11-28
+    expected_updated_as_on: 2026-08-25
+    expected_history_entry_date: null
+    expected_document_identifiers:
+      - "RBI/DOR/2025-26/351"
+      - "DOR.CRE.REC.270/07-03-008/2025-26"
+    expected_pdf_url: "https://rbidocs.rbi.org.in/rdocs/notification/PDFs/351MD74108723E6DA484E954DB9D2C7ED184C.PDF"
+    allowed_hosts: *rbi_hosts
+    comparison_eligible: true
+    notes: >-
+      "Current" means the version identified during research; re-confirmed at run time.
+      The page also links a separate Annex I PDF, which is outside the seeded corpus.
+
+  - source_key: gov_2025_historical_20251128
+    document_family_key: nbfc_governance_2025
+    version_role: historical
+    expected_title: "Reserve Bank of India (Non-Banking Financial Companies – Governance) Directions, 2025"
+    source_page_url: "https://www.rbi.org.in/Scripts/NotificationPreVersion.aspx?id=12960&Histid=147"
+    expected_issue_date: 2025-11-28
+    expected_updated_as_on: null
+    expected_history_entry_date: 2025-11-28
+    expected_document_identifiers:
+      - "RBI/DOR/2025-26/344"
+      - "DOR.GOV.REC.No.263/18-10-013/2025-26"
+    expected_pdf_url: "https://rbidocs.rbi.org.in/rdocs/notification/PDFs/NOTIFICATION_12960_28_11_2025.PDF"
+    allowed_hosts: *rbi_hosts
+    comparison_eligible: true
+    notes: Historical side of the Governance comparison pair.
+
+  - source_key: gov_2025_current
+    document_family_key: nbfc_governance_2025
+    version_role: current
+    expected_title: "Reserve Bank of India (Non-Banking Financial Companies – Governance) Directions, 2025 (Updated as on June 24, 2026)"
+    source_page_url: "https://www.rbi.org.in/Scripts/BS_ViewMasDirections.aspx?id=12960"
+    expected_issue_date: 2025-11-28
+    expected_updated_as_on: 2026-06-24
+    expected_history_entry_date: null
+    expected_document_identifiers:
+      - "RBI/DOR/2025-26/344"
+      - "DOR.GOV.REC.No.263/18-10-013/2025-26"
+    expected_pdf_url: "https://rbidocs.rbi.org.in/rdocs/notification/PDFs/344MD22F0E87F6DD848919A6459236939D76F.PDF"
+    allowed_hosts: *rbi_hosts
+    comparison_eligible: true
+    notes: >-
+      "Current" means the version identified during research; re-confirmed at run time.
+      The page also links separate annex PDFs, which are outside the seeded corpus.
+
+  - source_key: cf_2026_current
+    document_family_key: nbfc_compliance_function_2026
+    version_role: current
+    expected_title: "Reserve Bank of India (Non-Banking Financial Companies - Compliance Function) Directions, 2026"
+    source_page_url: "https://www.rbi.org.in/Scripts/BS_ViewMasDirections.aspx?id=13593"
+    expected_issue_date: 2026-07-31
+    expected_updated_as_on: null
+    expected_history_entry_date: null
+    expected_document_identifiers:
+      - "RBI/DoS/2026-27/460"
+      - "DoS.CO.PPG.54/11.01.005/2026-27"
+    expected_pdf_url: "https://rbidocs.rbi.org.in/rdocs/notification/PDFs/460MD930686EC27D04B4AA9DF4A3481CDD465.PDF"
+    allowed_hosts: *rbi_hosts
+    comparison_eligible: false
+    notes: >-
+      Current only. Not eligible for historical comparison (historical_version_unavailable).
+      The plan notes the RBI page indicates immediate effect; that is not verified by
+      this collector.

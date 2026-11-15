@@ -34,6 +34,22 @@ class Settings(BaseSettings):
     # safe password-free default, and the app must not silently pick a database.
     database_url: SecretStr | None = Field(default=None, validation_alias="DATABASE_URL")
 
+    # --- RBI source ingestion (read-only, allowlisted HTTP GET) ---
+    # Root for downloaded raw files (data/raw) and run reports (data/processed).
+    data_dir: Path = REPO_ROOT / "data"
+    http_connect_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    http_read_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    # Retries apply only to transient failures (network errors, 429, 5xx).
+    http_max_retries: int = Field(default=2, ge=0, le=5)
+    http_retry_backoff_seconds: float = Field(default=2.0, ge=0, le=30)
+    http_max_redirects: int = Field(default=5, ge=0, le=10)
+    http_max_page_bytes: int = Field(default=5 * 1024 * 1024, gt=0)
+    http_max_pdf_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
+    # Pause between sources so the RBI site is not hit in a burst.
+    http_request_delay_seconds: float = Field(default=1.0, ge=0, le=30)
+    # Generic client identifier; contains no personal or contact details.
+    http_user_agent: str = "NiyamLens-research-prototype/0.1 (read-only)"
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -8,15 +8,23 @@ Regulatory change and compliance intelligence for Indian NBFCs: a human-reviewed
 
 NiyamLens will track a small, verified set of RBI NBFC directions. It will compare historical and current versions using deterministic diffs, extract candidate obligations with exact source citations, and assess likely applicability against a synthetic NBFC profile. It will then draft follow-up actions that a human reviewer approves or rejects. The full scope, corpus and milestone plan are in `implementationplan.md`. That file is the implementation contract and is kept out of Git.
 
-**Current status: Milestone 1, project foundation.** No RBI ingestion, AI model, RAG, embeddings or agent features exist yet. The AI model and embedding provider are not yet chosen.
+**Current status: Milestone 2, RBI source manifest and safe ingestion.** The collector verifies the five seeded RBI pages. RBI serves a bot-protection challenge instead of the PDFs to automated clients, so the five PDFs were downloaded manually in a browser and imported with live verification (see [RBI source ingestion](#rbi-source-ingestion)). No PDF text extraction, AI model, RAG, embeddings or agent features exist yet. The AI model and embedding provider are not yet chosen.
 
-## Architecture (current foundation)
+## Architecture (current state)
 
 ```text
 frontend/  React + TypeScript + Vite + Tailwind CSS   static starter page (no API calls yet)
 backend/   FastAPI (Python 3.11, uv)                  GET /api/v1/health (liveness only)
            ├── app/config.py            Pydantic Settings: environment variables + root .env
-           └── app/database/session.py  SQLAlchemy 2 + Psycopg 3 engine, connection and pgvector checks
+           ├── app/database/session.py  SQLAlchemy 2 + Psycopg 3 engine, connection and pgvector checks
+           └── app/ingestion/           manifest-driven RBI collector (CLI: python -m app.ingestion)
+               ├── source_manifest.yaml   5 seeded sources in 3 families (expected values only)
+               ├── safe_http.py           allowlisted HTTPS GET, checked redirects, timeouts, retries, size cap
+               ├── metadata_parser.py     reads title, dates, identifiers, PDF link and history entries
+               ├── pdf_downloader.py      status / content-type / %PDF- checks, bot-challenge detection
+               ├── raw_store.py           write-once, SHA-256-named raw files and evidence
+               └── rbi_collector.py       per-source verify → block on mismatch → download → store
+data/      raw/ and processed/ (git-ignored)    raw files, page evidence, run reports
 docker-compose.yml                       PostgreSQL 16 + pgvector on 127.0.0.1:5433 (prepared, not yet run)
 docker/postgres/init/                    enables the `vector` extension on first initialisation
 ```
@@ -61,7 +69,56 @@ curl http://127.0.0.1:8000/api/v1/health                 # {"status":"ok","servi
 
 The interactive API docs are at `http://127.0.0.1:8000/docs`.
 
-Locked direct dependencies (from `uv.lock`): fastapi 0.162.7, uvicorn[standard] 0.54.0, pydantic-settings 2.16.3 (pydantic 2.14.3, python-dotenv 1.2.4), sqlalchemy 2.1.8, psycopg[binary] 3.3.9. Dev tools: pytest 9.2.0, httpx 0.28.1, ruff 0.17.5.
+Locked direct dependencies (from `uv.lock`): fastapi 0.162.7, uvicorn[standard] 0.54.0, pydantic-settings 2.16.3 (pydantic 2.14.3, python-dotenv 1.2.4), sqlalchemy 2.1.8, psycopg[binary] 3.3.9, httpx 0.28.1, pyyaml 6.0.3, beautifulsoup4 4.15.0. Dev tools: pytest 9.2.0, ruff 0.17.5.
+
+## RBI source ingestion
+
+The collector works only on the five sources in [`backend/app/ingestion/source_manifest.yaml`](backend/app/ingestion/source_manifest.yaml). Three families; only the first two are eligible for a historical/current comparison:
+
+| Family | Sources | Comparison |
+|---|---|---|
+| NBFC Concentration Risk Management Directions, 2025 | 28 Nov 2025 history entry (Histid 67); current (updated 25 Aug 2026) | Eligible |
+| NBFC Governance Directions, 2025 | 28 Nov 2025 history entry (Histid 147); current (updated 24 Jun 2026) | Eligible |
+| NBFC Compliance Function Directions, 2026 | current only (issued 31 Jul 2026) | `historical_version_unavailable` |
+
+```bash
+cd backend
+uv run python -m app.ingestion --verify-only     # check RBI pages against the manifest; no PDF download
+uv run python -m app.ingestion                   # verify, then download, validate and store PDFs
+uv run python -m app.ingestion --source cf_2026_current   # limit to one source (repeatable)
+uv run python -m app.ingestion --import-dir ../rbi_pdf    # verify live, then import browser-downloaded PDFs
+```
+
+For each source the collector:
+
+1. fetches the official RBI page (HTTPS GET only, to `www.rbi.org.in`, `rbi.org.in` or `rbidocs.rbi.org.in`; every redirect target is checked before it is followed) and keeps the page as evidence;
+2. reads the title, issue date, "Updated as on" date, document identifiers and the main PDF link;
+3. compares them with the manifest. For history pages it also confirms the entry on RBI's previous-versions page. For the Compliance Function family it records whether RBI still shows no previous version;
+4. **blocks** the source (`blocked_mismatch`) and does not download anything if any value differs. It never substitutes a similar PDF;
+5. otherwise downloads the PDF, checks HTTP 200, `application/pdf`, a non-empty body and the `%PDF-` signature, and stores the bytes unchanged.
+
+Storage under `data/raw/<source_key>/` (git-ignored):
+
+- `pdf/<sha256>.pdf` holds the raw bytes. It is read-only and never overwritten. Identical bytes on a re-run give `unchanged`; different bytes create a new file whose metadata records `previous_sha256`.
+- `pdf/<sha256>.json` records the retrieval time (UTC), requested and final URL, redirects, status, content type, size, SHA-256, and the expected and observed metadata.
+- `evidence/page-*.html`, `history-*.html` and `rejected-*.html` keep the RBI pages and any rejected download as evidence. RBI pages contain changing content, so each run usually adds a new page snapshot.
+
+Each run also writes a report to `data/processed/ingestion_runs/<run_id>.json`. The command exits with code 0 only if every source succeeded.
+
+Database records for ingested versions (plan §5.1 step 11) are deferred to Milestone 4. Until then, the JSON metadata above is the record.
+
+### Known blocker: RBI bot protection on PDF downloads
+
+Since 14 Nov 2026, `rbidocs.rbi.org.in` has returned an HTML bot-protection page ("This question is for testing whether you are a human visitor…") instead of the PDF to automated clients. The collector detects this, reports the source as `failed`, keeps the challenge page as `rejected-*.html` evidence, and stores no PDF. NiyamLens does **not** try to bypass this protection (no browser impersonation, cookie replay or CAPTCHA handling).
+
+**Verified local import (the approved workaround).** A person downloads the five PDFs in a normal browser from the links in the manifest into `rbi_pdf/` (git-ignored). Then run `uv run python -m app.ingestion --import-dir ../rbi_pdf`. The import:
+
+- still checks every RBI page and history entry live, and blocks on any mismatch;
+- reads only the file whose name matches the *verified* PDF link (letter case ignored, because browsers may save `.PDF` as `.pdf`);
+- rejects links/non-regular files, ambiguous matches, oversized files, empty files, HTML or bot-challenge pages, and files without the `%PDF-` signature or a `%%EOF` end marker (incomplete download);
+- copies the bytes into the same write-once store and never modifies the original files.
+
+The metadata records `acquisition_method: manual_browser_download`, the file name and modification time, and the import time as `retrieved_at`. NiyamLens did not see the browser's download, so `final_url`, `status_code` and `content_type` are `null`; the live page verification in the same run is what ties each file to its RBI source. Automated downloads record `acquisition_method: automated_download`.
 
 ## Frontend
 
@@ -121,5 +178,16 @@ NIYAMLENS_TEST_DATABASE_URL='postgresql+psycopg://niyamlens:<password>@127.0.0.1
 | Frontend dev server | Started; page served with title "NiyamLens" |
 | **PostgreSQL connection and pgvector check** | **Pending.** Not verified, because Docker is not installed and the isolated database has never run. |
 | `docker-compose.yml` | Parsed as valid YAML only; not validated by Docker Compose |
+
+### Milestone 2 results (14 Nov 2026)
+
+| Check | Result |
+|---|---|
+| Backend unit tests (`uv run pytest`) | **97 passed, 1 skipped** (the opt-in database test). No test contacts RBI; they use fake HTTP responses. |
+| Ruff lint / format check | Passed |
+| Live `--verify-only` run against RBI | All 5 sources verified: title, issue date, "Updated as on" date, identifiers, PDF link and history entry all matched. Compliance Function confirmed `historical_version_unavailable`. |
+| Live full run against RBI | **All 5 PDF downloads failed closed:** RBI returned a bot-protection page instead of each PDF. Evidence kept; no PDF stored; exit code 1. |
+| Verified local import (15 Nov 2026) | Unit tests: **108 passed, 1 skipped**. Live `--import-dir ../rbi_pdf`: all 5 pages and history entries verified, **5 PDFs ingested** (`manual_browser_download`), exit code 0. Stored files are read-only and named by their SHA-256; the originals in `rbi_pdf/` were unchanged. |
+| Re-run idempotency | Live: a second and third import reported **5 × `unchanged`**, exit code 0, still 5 stored PDFs. New-version handling is verified by unit tests only. |
 
 Known warning: Starlette reports that using `httpx` with its test client is deprecated in favour of `httpx2`. The tests still pass. Switching packages is left for a future approved change.
