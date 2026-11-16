@@ -8,7 +8,7 @@ Regulatory change and compliance intelligence for Indian NBFCs: a human-reviewed
 
 NiyamLens will track a small, verified set of RBI NBFC directions. It will compare historical and current versions using deterministic diffs, extract candidate obligations with exact source citations, and assess likely applicability against a synthetic NBFC profile. It will then draft follow-up actions that a human reviewer approves or rejects. The full scope, corpus and milestone plan are in `implementationplan.md`. That file is the implementation contract and is kept out of Git.
 
-**Current status: Milestone 2, RBI source manifest and safe ingestion.** The collector verifies the five seeded RBI pages. RBI serves a bot-protection challenge instead of the PDFs to automated clients, so the five PDFs were downloaded manually in a browser and imported with live verification (see [RBI source ingestion](#rbi-source-ingestion)). No PDF text extraction, AI model, RAG, embeddings or agent features exist yet. The AI model and embedding provider are not yet chosen.
+**Current status: Milestone 3, PDF extraction and section normalization.** The five seeded RBI PDFs are stored (downloaded manually in a browser and imported with live verification, because RBI serves a bot-protection challenge to automated clients; see [RBI source ingestion](#rbi-source-ingestion)). Their text is extracted page by page and split into numbered clauses (see [PDF extraction and section normalization](#pdf-extraction-and-section-normalization)). No database records, version comparison, AI model, RAG, embeddings or agent features exist yet. The AI model and embedding provider are not yet chosen.
 
 ## Architecture (current state)
 
@@ -23,7 +23,10 @@ backend/   FastAPI (Python 3.11, uv)                  GET /api/v1/health (livene
                ├── metadata_parser.py     reads title, dates, identifiers, PDF link and history entries
                ├── pdf_downloader.py      status / content-type / %PDF- checks, bot-challenge detection
                ├── raw_store.py           write-once, SHA-256-named raw files and evidence
-               └── rbi_collector.py       per-source verify → block on mismatch → download → store
+               ├── rbi_collector.py       per-source verify → block on mismatch → download/import → store
+               ├── pdf_extractor.py       PyMuPDF page text, one-based pages, empty-page review flags
+               ├── section_normalizer.py  chapters, headings, numbered clauses, footnotes, unstructured blocks
+               └── extract.py             CLI: python -m app.ingestion.extract
 data/      raw/ and processed/ (git-ignored)    raw files, page evidence, run reports
 docker-compose.yml                       PostgreSQL 16 + pgvector on 127.0.0.1:5433 (prepared, not yet run)
 docker/postgres/init/                    enables the `vector` extension on first initialisation
@@ -69,7 +72,9 @@ curl http://127.0.0.1:8000/api/v1/health                 # {"status":"ok","servi
 
 The interactive API docs are at `http://127.0.0.1:8000/docs`.
 
-Locked direct dependencies (from `uv.lock`): fastapi 0.162.7, uvicorn[standard] 0.54.0, pydantic-settings 2.16.3 (pydantic 2.14.3, python-dotenv 1.2.4), sqlalchemy 2.1.8, psycopg[binary] 3.3.9, httpx 0.28.1, pyyaml 6.0.3, beautifulsoup4 4.15.0. Dev tools: pytest 9.2.0, ruff 0.17.5.
+Locked direct dependencies (from `uv.lock`): fastapi 0.162.7, uvicorn[standard] 0.54.0, pydantic-settings 2.16.3 (pydantic 2.14.3, python-dotenv 1.2.4), sqlalchemy 2.1.8, psycopg[binary] 3.3.9, httpx 0.28.1, pyyaml 6.0.3, beautifulsoup4 4.15.0, pymupdf 1.28.2. Dev tools: pytest 9.2.0, ruff 0.17.5.
+
+`pymupdf` is pinned to `>=1.28.2,<2`. PyMuPDF 2.x adds ten more packages (including `onnxruntime`, `numpy` and `networkx`) for layout analysis that this project does not use; 1.28.2 has no dependencies. PyMuPDF is licensed under the GNU AGPL 3.0 (or a commercial licence from Artifex), which is different from this repository's Apache 2.0 licence. Check that this suits how you plan to share or deploy the project.
 
 ## RBI source ingestion
 
@@ -119,6 +124,36 @@ Since 14 Nov 2026, `rbidocs.rbi.org.in` has returned an HTML bot-protection page
 - copies the bytes into the same write-once store and never modifies the original files.
 
 The metadata records `acquisition_method: manual_browser_download`, the file name and modification time, and the import time as `retrieved_at`. NiyamLens did not see the browser's download, so `final_url`, `status_code` and `content_type` are `null`; the live page verification in the same run is what ties each file to its RBI source. Automated downloads record `acquisition_method: automated_download`.
+
+## PDF extraction and section normalization
+
+```bash
+cd backend
+uv run python -m app.ingestion.extract                      # all stored sources
+uv run python -m app.ingestion.extract --source gov_2025_current
+```
+
+For each source the command takes the most recently stored raw PDF, checks its SHA-256 and the `%PDF-` signature, and then:
+
+1. **Extracts every page with PyMuPDF.** Page numbers are one-based and are the PDF's physical page positions, not the numbers printed in the footer (those differ in these RBI PDFs). No OCR and no de-hyphenation are applied. A page with no text or fewer than 50 non-whitespace characters is marked `needs_manual_review`; no text is ever invented for it. The PyMuPDF/MuPDF versions and the extraction time are recorded.
+2. **Splits the text into units:**
+   - `paragraph` / `subparagraph`: numbered clauses such as `3`, `3(1)`, `3(1)(i)`, with chapter, section heading and start/end page. A number is accepted only if it continues the expected sequence. An out-of-sequence number or list marker stays as text and the unit is flagged, never guessed.
+   - `footnote`: amendment footnotes at the bottom of a page (for example "Inserted vide … Amendment Directions, 2026"). The clause that cites a footnote lists its reference number in `footnote_markers`.
+   - `unstructured_page_block`: cover and table of contents, introductions, signature blocks and annexes (reporting templates and forms). They never get a clause number and are marked for review.
+3. **Keeps two texts per unit.** `original_text` holds the extracted lines unchanged. `normalized_text` is for comparison only: Unicode variants, dashes, quotes and spaces are unified, line breaks are joined (a hyphen at a line end is kept, as in `Non-Banking`), and small-font footnote reference numbers are removed. A check confirms that every number, negation ("not", "no", "unless", …) and modal verb ("shall", "may", …) is still present; a unit that fails it is flagged `normalization_check_failed`.
+
+Printed page numbers and repeated running headers are left out of units; they remain in the stored page text.
+
+Review flags include:
+- `attachment_uncertain:unnumbered_proviso_or_note`: a "Provided that", "Explanation" or "Note" after a list item. It is kept with that item, but it may apply to the parent clause.
+- `unexpected_list_marker:…` and `unexpected_paragraph_number:…`: a marker that doesn't continue the sequence. It is kept as text.
+- `paragraph_number_gap:…`: a paragraph number skips one or more numbers.
+- `page_needs_manual_review`: the unit sits on a page flagged during extraction.
+- `no_reliable_paragraph_boundary`: set on every unstructured block.
+
+Units marked `info:` are informational only.
+
+Output (git-ignored, write-once): `data/processed/extracted/<source_key>/<sha256>.pymupdf-<version>.normalizer-<version>.json` with the source reference, page texts and warnings, the outline, and the units. A re-run with the same PDF and tool versions reports `unchanged`. If the result would differ (the code changed without a version bump), the command fails instead of overwriting. Database records are created in Milestone 4.
 
 ## Frontend
 
@@ -190,4 +225,21 @@ NIYAMLENS_TEST_DATABASE_URL='postgresql+psycopg://niyamlens:<password>@127.0.0.1
 | Verified local import (15 Nov 2026) | Unit tests: **108 passed, 1 skipped**. Live `--import-dir ../rbi_pdf`: all 5 pages and history entries verified, **5 PDFs ingested** (`manual_browser_download`), exit code 0. Stored files are read-only and named by their SHA-256; the originals in `rbi_pdf/` were unchanged. |
 | Re-run idempotency | Live: a second and third import reported **5 × `unchanged`**, exit code 0, still 5 stored PDFs. New-version handling is verified by unit tests only. |
 
-Known warning: Starlette reports that using `httpx` with its test client is deprecated in favour of `httpx2`. The tests still pass. Switching packages is left for a future approved change.
+### Milestone 3 results (15 Nov 2026)
+
+| Check | Result |
+|---|---|
+| Backend unit tests (`uv run pytest`) | **150 passed, 1 skipped** (the opt-in database test). Extraction tests use synthetic PDFs generated at test time. |
+| Ruff lint / format check | Passed |
+| Live extraction of the 5 stored PDFs | All 5 extracted, exit code 0. 121 pages, none empty or low-text. |
+| Paragraph numbering | Continuous from 1 with no gaps or duplicate identifiers: 53, 53, 47, 47 and 37 paragraphs. |
+| Footnotes | 12 (Concentration Risk current) and 1 (Governance current) amendment footnotes; every footnote reference in a clause resolves to a footnote. None in the original 28 Nov 2025 versions. |
+| Text coverage | Every extracted page line is in a unit or is a recognised heading, except the Compliance Function running header (page furniture). |
+| Normalization check | No unit lost a number, negation or modal verb. |
+| Re-run | All 5 `unchanged`; output files not rewritten. |
+
+Units flagged for review on the real documents: 4–22 per document. They are unstructured blocks (cover, preamble, signature, annex pages) plus 6–11 unnumbered provisos or notes in each Concentration Risk and Governance version, and one inline list in paragraph 4(7) of the 28 Nov 2025 Concentration Risk version. One flag is a known false positive: Governance 5(9) has a line beginning "Explanation' to Section 178", which is a statutory reference, not a proviso.
+
+Known warnings:
+- Starlette reports that using `httpx` with its test client is deprecated in favour of `httpx2`. The tests still pass. Switching packages is left for a future approved change.
+- Importing PyMuPDF prints Python `DeprecationWarning`s about SWIG types (`SwigPyPacked`, `SwigPyObject`, `swigvarlink`). They come from the library's bindings and do not affect results.
